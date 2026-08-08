@@ -48,6 +48,9 @@ final class WorkCommand implements Command
 
         echo "Worker started (queue=" . ($queue ?? 'default') . ", sleep={$sleep}s). Ctrl+C to stop.\n";
 
+        // A worker daemon is unbounded by design: it exits on SIGINT/SIGTERM
+        // (Ctrl+C) or process recycle, never by the loop condition going false.
+        // @phpstan-ignore while.alwaysTrue
         while (true) {
             $processed = $this->worker->drain($queue, maxJobs: 10);
             if ($processed === 0) {

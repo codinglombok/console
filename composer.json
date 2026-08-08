@@ -2,18 +2,25 @@
     "name": "lombokclarion/console",
     "description": "Explicit CLI kernel for LombokClarion, plus built-in migrate/optimize/audit:sql/audit:security commands.",
     "type": "library",
-    "license": "MIT",
+    "license": "Apache-2.0",
     "require": {
         "php": ">=8.3",
+        "ext-pdo": "*",
         "lombokclarion/container": "*",
         "lombokclarion/persistence": "*",
         "lombokclarion/routing": "*",
         "lombokclarion/config": "*",
-        "lombokclarion/view": "*"
+        "lombokclarion/view": "*",
+        "lombokclarion/bus": "*"
     },
     "autoload": {
         "psr-4": {
             "LombokClarion\\Console\\": "src/"
+        }
+    },
+    "extra": {
+        "branch-alias": {
+            "dev-main": "2.2.x-dev"
         }
     }
 }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace LombokClarion\Console\BuiltIn;
 
 use LombokClarion\Console\Command;
+use LombokClarion\Persistence\Identifier;
 use LombokClarion\Persistence\QueryBuilder;
 use PDO;
 use RecursiveDirectoryIterator;
@@ -28,6 +29,12 @@ use SplFileInfo;
  *             query shapes found in repositories, flagging missing indexes
  *             and sequential scans (§7).
  *  --xss      also scan view files for unescaped output (on by default).
+ *  --exclude=PATH
+ *             skip a file or directory. Intended for the handful of files that
+ *             legitimately assemble SQL and cannot be proven safe by either
+ *             engine — see docs/AUDIT-TRAIL.md. Every exclusion is a promise
+ *             that the file is covered by dedicated tests instead, so keep the
+ *             list short and justified; an exclusion is a cost, not a fix.
  */
 final class AuditSqlCommand implements Command
 {
@@ -47,10 +54,13 @@ final class AuditSqlCommand implements Command
     {
         $explainMode = false;
         $paths = [];
+        $excluded = [];
 
         foreach ($arguments as $arg) {
             if ($arg === '--explain') {
                 $explainMode = true;
+            } elseif (str_starts_with($arg, '--exclude=')) {
+                $excluded[] = $this->normalizePath(substr($arg, strlen('--exclude=')));
             } elseif (!str_starts_with($arg, '--')) {
                 $paths[] = $arg;
             }
@@ -65,9 +75,15 @@ final class AuditSqlCommand implements Command
 
         foreach ($paths as $path) {
             foreach ($this->phpFiles($path) as $file) {
+                if ($this->isExcluded($file->getPathname(), $excluded)) {
+                    continue;
+                }
                 $findings = [...$findings, ...$scanner->scan($file->getPathname())];
             }
             foreach ($this->viewFiles($path) as $file) {
+                if ($this->isExcluded($file->getPathname(), $excluded)) {
+                    continue;
+                }
                 $findings = [...$findings, ...$this->scanRawViewOutput($file)];
             }
         }
@@ -134,14 +150,27 @@ final class AuditSqlCommand implements Command
             }
 
             // Check if table has enough rows to make EXPLAIN meaningful.
-            $count = (int) $this->pdo->query("SELECT COUNT(*) FROM \"$table\"")->fetchColumn();
+            // $table comes from the DB catalogue rather than user input, but it is still
+            // an identifier spliced into SQL — route it through the same validation every
+            // other identifier in the framework uses, so this command obeys the rule it
+            // exists to enforce.
+            //
+            // Identifier::quote() is called inline at each site rather than hoisted into
+            // a variable on purpose: the tokenizer engine can follow the assignment, but
+            // the PHPStan engine cannot, and a site only one of the two gates accepts is
+            // exactly the disagreement this command exists to prevent.
+            $count = (int) $this->pdo
+                ->query('SELECT COUNT(*) FROM ' . Identifier::quote($table))
+                ->fetchColumn();
             if ($count < 10) {
                 continue;
             }
 
             // Run EXPLAIN on a full-table SELECT.
-            $explainPrefix = $driver === 'sqlite' ? 'EXPLAIN QUERY PLAN' : 'EXPLAIN ANALYZE';
-            $stmt = $this->pdo->query("$explainPrefix SELECT * FROM \"$table\"");
+            $stmt = $this->pdo->query(match ($driver) {
+                'sqlite' => 'EXPLAIN QUERY PLAN SELECT * FROM ' . Identifier::quote($table),
+                default => 'EXPLAIN ANALYZE SELECT * FROM ' . Identifier::quote($table),
+            });
             $plan = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             foreach ($plan as $row) {
@@ -162,6 +191,29 @@ final class AuditSqlCommand implements Command
     }
 
     /** @return list<SplFileInfo> */
+    /**
+     * @param list<string> $excluded
+     */
+    private function isExcluded(string $file, array $excluded): bool
+    {
+        $file = $this->normalizePath($file);
+
+        foreach ($excluded as $prefix) {
+            if ($file === $prefix || str_starts_with($file, rtrim($prefix, '/') . '/')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function normalizePath(string $path): string
+    {
+        $real = realpath($path);
+
+        return str_replace('\\', '/', $real !== false ? $real : $path);
+    }
+
     private function phpFiles(string $path): array
     {
         return $this->filesMatching($path, '/\.php$/');

@@ -36,6 +36,9 @@ final class OptimizeCommand implements Command
         private readonly array $assets = [],
         private readonly ?string $publicAssetsDir = null,
         private readonly ?string $assetManifestPath = null,
+        // Stage 11: when both are given, emit the compiled route match index.
+        private readonly ?\LombokClarion\Routing\Router $router = null,
+        private readonly ?string $routesOutputPath = null,
     ) {
     }
 
@@ -57,6 +60,11 @@ final class OptimizeCommand implements Command
         if ($this->configSchema !== null && $this->configOutputPath !== null) {
             (new ConfigCompiler())->compileToFile($this->configSchema, $this->configOutputPath);
             echo "Wrote {$this->configOutputPath}\n";
+        }
+
+        if ($this->router !== null && $this->routesOutputPath !== null) {
+            (new \LombokClarion\Routing\RouteCompiler())->compileToFile($this->router, $this->routesOutputPath);
+            echo "Wrote {$this->routesOutputPath}\n";
         }
 
         if ($this->assets !== [] && $this->publicAssetsDir !== null && $this->assetManifestPath !== null) {
