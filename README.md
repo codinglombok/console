@@ -13,7 +13,7 @@ composer require lombokclarion/console
 
 ## Namespace
 
-```
+```php
 LombokClarion\Console
 ```
 
